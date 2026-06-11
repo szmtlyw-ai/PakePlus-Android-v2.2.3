@@ -4,7 +4,6 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>奇解与包络几何探索器</title>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/mathjs/12.4.0/math.min.js"></script>
     <style>
         * {
             margin: 0;
@@ -838,29 +837,52 @@ if (sessionStorage.getItem("allow") !== "ok") {
             return createFunctionFromExpression(right.replace(/\bC(?=x\b)/g, 'C*'), ['x', 'C']);
         }
 
+        function compileExpression(expr) {
+            const normalized = normalizeFamilyExpression(expr);
+
+            if (window.math && typeof window.math.compile === 'function') {
+                const compiled = window.math.compile(normalized);
+                return (scope) => compiled.evaluate(scope);
+            }
+
+            let jsExpr = normalized
+                .replace(/\bC(?=x\b)/g, 'C*')
+                .replace(/\^/g, '**')
+                .replace(/\b(sin|cos|tan|sqrt|abs|exp|log|asin|acos|atan|floor|ceil|round)\s*\(/g, 'Math.$1(')
+                .replace(/\bpi\b/gi, 'Math.PI')
+                .replace(/\be\b/g, 'Math.E');
+
+            if (!/^[0-9+\-*/().,\sxyCMathPIEabcdefghijklmnopqrstuvwxyz_]*$/.test(jsExpr)) {
+                throw new Error('Unsupported expression characters');
+            }
+
+            const evaluator = new Function('x', 'y', 'C', `"use strict"; return (${jsExpr});`);
+            return (scope) => evaluator(scope.x, scope.y, scope.C);
+        }
+
+
         // 核心函数：安全地解析和计算数学表达式
         function createFunctionFromExpression(expr, vars) {
             try {
-                const compiled = math.compile(normalizeFamilyExpression(expr));
+                const evaluateExpression = compileExpression(expr);
                 return function(...args) {
                     try {
                         const scope = {};
                         vars.forEach((v, i) => {
                             scope[v] = args[i];
                         });
-                        return compiled.evaluate(scope);
+                        return evaluateExpression(scope);
                     } catch (err) {
                         return NaN;
                     }
                 };
             } catch (err) {
-                console.error("表达式解析失败:", err.message);
-                alert(`表达式解析错误：${err.message}。请检查数学表达式。`);
+                console.error("Expression parse failed", err.message);
+                alert(`Expression parse error: ${err.message}. Please check the expression.`);
                 return () => NaN;
             }
         }
 
-        // 坐标转换函数
         function logicalToCanvas(lx, ly) {
             const centerX = canvas.width / 2;
             const centerY = canvas.height / 2;
